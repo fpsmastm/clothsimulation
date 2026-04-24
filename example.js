@@ -1,6 +1,9 @@
 // Graphics variables
 var container, stats;
 var camera, controls, scene, renderer;
+var raycaster, pointer;
+var dragPlane, dragOffset, dragIntersection;
+var activeDrag = null;
 
 // Timers
 var clock = new THREE.Clock();
@@ -64,8 +67,16 @@ function initGraphics() {
 	scene.add(dirLight);
 
 	controls = new THREE.OrbitControls(camera, container);
+	controls.enableDamping = true;
+
+	raycaster = new THREE.Raycaster();
+	pointer = new THREE.Vector2();
+	dragPlane = new THREE.Plane();
+	dragOffset = new THREE.Vector3();
+	dragIntersection = new THREE.Vector3();
 
 	container.appendChild(renderer.domElement);
+	renderer.domElement.addEventListener('pointerdown', onPointerDown);
 
 	stats = new Stats();
 	stats.domElement.style.position = 'absolute';
@@ -73,6 +84,78 @@ function initGraphics() {
 	container.appendChild(stats.domElement);
 
 	window.addEventListener('resize', onWindowResize, false);
+}
+
+function getPointerFromEvent(event) {
+	const rect = renderer.domElement.getBoundingClientRect();
+	pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+	pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+}
+
+function setDraggedBodyPosition(body, position) {
+	const pos = new Jolt.RVec3(position.x, position.y, position.z);
+	body.SetPosition(pos, Jolt.EActivation_Activate);
+	Jolt.destroy(pos);
+
+	const zeroVelocity = new Jolt.Vec3(0, 0, 0);
+	body.SetLinearVelocity(zeroVelocity);
+	body.SetAngularVelocity(zeroVelocity);
+	Jolt.destroy(zeroVelocity);
+}
+
+function onPointerDown(event) {
+	getPointerFromEvent(event);
+	raycaster.setFromCamera(pointer, camera);
+
+	const draggableObjects = dynamicObjects.filter((obj) => obj.userData.draggable);
+	const hits = raycaster.intersectObjects(draggableObjects, false);
+	if (hits.length === 0)
+		return;
+
+	const hit = hits[0];
+	const draggedObject = hit.object;
+	const cameraNormal = new THREE.Vector3();
+	camera.getWorldDirection(cameraNormal);
+	dragPlane.setFromNormalAndCoplanarPoint(cameraNormal, draggedObject.position);
+
+	if (!raycaster.ray.intersectPlane(dragPlane, dragIntersection))
+		return;
+
+	dragOffset.copy(draggedObject.position).sub(dragIntersection);
+	activeDrag = {
+		object: draggedObject,
+		targetPosition: draggedObject.position.clone()
+	};
+	controls.enabled = false;
+	renderer.domElement.style.cursor = 'grabbing';
+
+	setDraggedBodyPosition(draggedObject.userData.body, draggedObject.position);
+
+	window.addEventListener('pointermove', onPointerMove);
+	window.addEventListener('pointerup', onPointerUp);
+}
+
+function onPointerMove(event) {
+	if (activeDrag == null)
+		return;
+
+	getPointerFromEvent(event);
+	raycaster.setFromCamera(pointer, camera);
+	if (!raycaster.ray.intersectPlane(dragPlane, dragIntersection))
+		return;
+
+	activeDrag.targetPosition.copy(dragIntersection).add(dragOffset);
+}
+
+function onPointerUp() {
+	if (activeDrag == null)
+		return;
+
+	activeDrag = null;
+	controls.enabled = true;
+	renderer.domElement.style.cursor = '';
+	window.removeEventListener('pointermove', onPointerMove);
+	window.removeEventListener('pointerup', onPointerUp);
 }
 
 let setupCollisionFiltering = function (settings) {
@@ -154,6 +237,10 @@ function renderExample() {
 
 	if (onExampleUpdate != null)
 		onExampleUpdate(time, deltaTime);
+
+	if (activeDrag != null) {
+		setDraggedBodyPosition(activeDrag.object.userData.body, activeDrag.targetPosition);
+	}
 
 	// Update object transforms
 	for (let i = 0, il = dynamicObjects.length; i < il; i++) {
@@ -308,6 +395,7 @@ function getThreeObjectForBody(body, color) {
 		case Jolt.EShapeSubType_Sphere:
 			let sphereShape = Jolt.castObject(shape, Jolt.SphereShape);
 			threeObject = new THREE.Mesh(new THREE.SphereGeometry(sphereShape.GetRadius(), 32, 32), material);
+			threeObject.userData.draggable = true;
 			break;
 		case Jolt.EShapeSubType_Capsule:
 			let capsuleShape = Jolt.castObject(shape, Jolt.CapsuleShape);
