@@ -2,7 +2,7 @@
 		<title>JoltPhysics.js demo</title>
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
-		<link rel="stylesheet" type="text/css" href="style.css">
+		<link rel="stylesheet" type="text/css" href="css/style.css">
 	</head>
 	<body>
 		<div id="container">Loading...</div>
@@ -10,14 +10,20 @@
 			<input type="checkbox" id="show-particles"><label>Show soft body particles</label>
 		</div>
 
-		<script src="three.min.js"></script>
-		<script src="OrbitControls.js"></script>
-		<script src="WebGL.js"></script>
-		<script src="stats.min.js"></script>
-		<script src="example.js"></script>
+		<script src="js/three.min.js"></script>
+		<script src="js/OrbitControls.js"></script>
+		<script src="js/WebGL.js"></script>
+		<script src="js/stats.min.js"></script>
+		<script src="js/example.js"></script>
 
 		<script type="module">
-			import initJolt from 'https://www.unpkg.com/jolt-physics/dist/jolt-physics.wasm-compat.js';
+			let initJolt;
+			try {
+				({ default: initJolt } = await import('./js/jolt-physics.wasm-compat.js'));
+			} catch (error) {
+				console.warn('Falling back to CDN Jolt build:', error);
+				({ default: initJolt } = await import('https://www.unpkg.com/jolt-physics/dist/jolt-physics.wasm-compat.js'));
+			}
 
 			let markers = null;
 
